@@ -257,37 +257,49 @@ export default function TraceTool() {
 
   // Regen runs after the autosave settles. We use a longer debounce so a
   // burst of edits collapses into a single regen run.
+  const runRegen = useCallback(async (force: boolean) => {
+    setRegenStatus({ kind: "running" });
+    try {
+      const url = force
+        ? "/api/dev/parts/regen?force=true"
+        : "/api/dev/parts/regen";
+      const res = await fetch(url, { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        setRegenStatus({
+          kind: "failed",
+          message: body.message ?? `regen failed (${res.status})`,
+        });
+        return;
+      }
+      const body = (await res.json()) as { regenerated: string[] };
+      setRegenStatus({
+        kind: "done",
+        count: body.regenerated.length,
+        at: new Date().toISOString(),
+      });
+    } catch (e: unknown) {
+      setRegenStatus({
+        kind: "failed",
+        message: (e as Error).message,
+      });
+    }
+  }, []);
+
   const scheduleRegen = useCallback(() => {
     if (regenTimerRef.current) clearTimeout(regenTimerRef.current);
     setRegenStatus({ kind: "scheduled" });
-    regenTimerRef.current = setTimeout(async () => {
-      setRegenStatus({ kind: "running" });
-      try {
-        const res = await fetch("/api/dev/parts/regen", { method: "POST" });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            message?: string;
-          };
-          setRegenStatus({
-            kind: "failed",
-            message: body.message ?? `regen failed (${res.status})`,
-          });
-          return;
-        }
-        const body = (await res.json()) as { regenerated: string[] };
-        setRegenStatus({
-          kind: "done",
-          count: body.regenerated.length,
-          at: new Date().toISOString(),
-        });
-      } catch (e: unknown) {
-        setRegenStatus({
-          kind: "failed",
-          message: (e as Error).message,
-        });
-      }
+    regenTimerRef.current = setTimeout(() => {
+      void runRegen(false);
     }, REGEN_DEBOUNCE_MS);
-  }, []);
+  }, [runRegen]);
+
+  const handleRegenAll = useCallback(() => {
+    if (regenTimerRef.current) clearTimeout(regenTimerRef.current);
+    void runRegen(true);
+  }, [runRegen]);
 
   useEffect(() => {
     flushSaveRef.current = async () => {
@@ -752,6 +764,14 @@ export default function TraceTool() {
               <option value="hidden">最小表示</option>
             </select>
           </label>
+          <button
+            type="button"
+            onClick={handleRegenAll}
+            title="全部材のマスク + shading を強制再生成（過去の編集で取りこぼした分も含めて再構築）"
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:border-slate-400"
+          >
+            全マスク再生成
+          </button>
           <button
             type="button"
             onClick={handleOpenImport}
