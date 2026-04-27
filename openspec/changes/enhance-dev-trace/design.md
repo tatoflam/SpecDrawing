@@ -178,3 +178,50 @@ Rollback = revert the merge. There is no data migration since `parts.json` shape
 - **Q1**: Should the dev API serve other artifacts beyond `parts.json` (e.g., the seed scripts' outputs, scenes index)? Not in this change — keep scope tight to the persistence pain. If demand emerges we extend the route.
 - **Q2**: Should `RestoreDraftPrompt` offer a "merge" action (per-part) or just accept/decline on the whole draft? This change ships accept/decline only. Per-part merge can come if the workflow demands it.
 - **Q3**: Do we want `parts.json` change-watching on the server side so a `git pull` auto-prompts the user to discard their draft? Out of scope; an mtime check on next mount is enough.
+
+## Decisions added during implementation (post-bug-reports)
+
+### D11. Mask regen pipeline switched from `.bak` diff to per-part hash sidecar
+
+**Problem discovered after first ship**: the original regen endpoint diffed `parts.json` against `parts.json.bak`. `.bak` only keeps one step of history. A direct check of all 17 mask alpha bboxes vs the corresponding polygon bboxes found 16 of 17 masks did not match the current polygons — only the most-recently-edited part was in sync. Cause: each PUT shifts `.bak` forward by one, so any single dropped regen request (network blip, dev-server restart mid-edit, manual `parts.json` edit outside the tool) silently leaves the affected part's mask permanently stale.
+
+**Decision**: replace the `.bak`-based diff with a per-part hash sidecar at `public/assets/base/main/parts.json.regen.json`. Shape `{ version: 1, parts: { [partId]: hashString } }`. After every regen, the sidecar records the FNV-1a hash of `JSON.stringify(polygon) + "|" + mask + "|" + (shading ?? "")` for each regenerated part. The next regen call re-hashes every current part and regenerates anything whose recorded hash is missing or out of date — drift is bounded to "until the next regen call" rather than "permanent".
+
+**Sidecar safety**:
+- Atomic write via `.tmp` + `rename`.
+- Gitignored (local state only).
+- Hash entries for unchanged parts are preserved across writes.
+
+**Why FNV-1a**: same hash as `loadPartsForScene` uses for the runtime `_rev` cache-bust (D13 below), so the two stay in lock-step. Non-cryptographic; collision risk is negligible for this purpose.
+
+### D12. `?force=true` + "全マスク再生成" button as the safety valve
+
+The sidecar itself can drift (e.g., the designer hand-edits `parts.json` outside the dev API, or restores `parts.json` from `git`). To recover, the regen endpoint accepts `?force=true` which skips the sidecar diff and rebuilds every part. After completion, the sidecar is updated so subsequent diff regens correctly return `regenerated: []`.
+
+The header in `/dev/trace` exposes a "全マスク再生成" button that POSTs the force variant. Cost: ~5 s for 17 parts at 3000×2142, run on demand. The button is always present (not hidden behind a debug flag) — a noticeable overhead is preferable to a stale-mask demo.
+
+### D13. Cache-bust mask + shading URLs by per-part `_rev`
+
+**Problem**: even after the mask file is correctly regenerated, the runtime at `/` may keep showing the old shape. Two layers of caching are involved:
+1. The browser's image cache, keyed by URL.
+2. The in-process `useImageCache` Map (in `lib/canvas/useImageCache.ts`), also keyed by URL.
+
+With a fixed URL like `/assets/base/main/mask_07.png`, both caches return the previously-loaded `Image` instance even after the file on disk has been rewritten. A hard reload usually clears the browser cache, but the React module-level Map can survive HMR in some configurations.
+
+**Decision**: have `loadPartsForScene` attach a per-part `_rev` field — the same FNV-1a hash used by the regen sidecar — to each loaded part at runtime. `PartFinishLayer` appends `?v=<_rev>` to the mask + shading URLs it hands to `useImage`. When a polygon changes, `_rev` changes, the URL changes, both caches treat the new URL as a brand-new asset, the browser re-fetches.
+
+**Per-part rather than global**: a polygon edit on ⑦ only invalidates `mask_07`/`shading_07`. The other 16 parts keep their cached images.
+
+The `_rev` field is added to the runtime object **after** Zod parsing, so the on-disk schema is unchanged.
+
+### D14. Click pass-through on the editing-part polygon Line
+
+**Problem**: the editing-part polygon `<Line>` rendered with a 10%-opacity blue fill (visual reference for the polygon area) but no `listening={false}`. Konva routed clicks (and right-clicks) inside the polygon to the Line shape. The Stage's `onClick` handler then early-returned because `e.target !== stage`, so vertex add/insert never fired. Right-clicks on small vertex Circles that fell on the polygon's interior fill went to the Line instead of the Circle, so contextmenu didn't reach the Circle's `onContextMenu`.
+
+**Decision**: mark the editing-part polygon `<Line>` `listening={false}`. The fill stays visible (Konva still renders it) but events pass through to the Stage. Vertex `<Circle>` handles remain interactive (default `listening={true}`) so they continue to receive context-menu and drag events.
+
+### D15. Header layout never shifts during status transitions
+
+**Problem**: the regen badge text "マスク更新済み <N>件 HH:MM:SS — メイン画面はリロードで反映" wrapped to a second line in the header, growing the header height and pushing the canvas down — disrupting fine vertex placement.
+
+**Decision**: render the save badge + regen badge in a fixed-width column (200 px) with `whitespace-nowrap`. Shorten the regen done text to "マスク更新 <N>件 HH:MM:SS"; the longer "メイン画面はリロードで反映" reminder lives in the badge's `title` attribute (browser tooltip on hover). Header height is now constant across all save/regen state transitions.

@@ -57,10 +57,39 @@
 ## 9a. Auto-regenerate masks + shading after save (added in response to a runtime bug)
 
 - [x] 9a.1 Extract mask + shading generation into `lib/dev/regenAssets.ts` (server-only, sharp + node:fs); export `regenPartsAssets({ sceneDir, width, height, baseRgb, parts })`
-- [x] 9a.2 Add `app/api/dev/parts/regen/route.ts` POST handler (dev-gated): reads live `parts.json` + `.bak`, diffs polygon / mask / shading per part, regenerates only changed parts, returns `{ regenerated: PartId[], durationMs }`
+- [x] 9a.2 Add `app/api/dev/parts/regen/route.ts` POST handler (dev-gated)
 - [x] 9a.3 In `TraceTool.client.tsx`, after each successful autosave PUT schedule a 1.5-s debounced `POST /api/dev/parts/regen` via `scheduleRegen()`
-- [x] 9a.4 Surface regen state in the header: `マスク再生成 待機中…` / `マスク再生成 中…` / `マスク更新済み <N>件 HH:MM:SS — メイン画面はリロードで反映` / `マスク再生成 失敗`
-- [x] 9a.5 Smoke: edit a vertex on part 7 in `/dev/trace`; verify within ~2 s that `mask_07.png` and `shading_07.png` mtimes update; reload `/` and verify part 7 finish lands on the new polygon (verified: mtimes 16:02 → 20:38 after delete-vertex action; regen API returned `{ regenerated: ["07"], durationMs: 171 }`)
+- [x] 9a.4 Surface regen state in the header
+- [x] 9a.5 Smoke: edit a vertex on part 7 in `/dev/trace`; verify within ~2 s that `mask_07.png` and `shading_07.png` mtimes update
+
+## 9b. Cache-bust mask + shading URLs by per-part `_rev` (D13)
+
+- [x] 9b.1 Add a `partRevision(part)` helper in `lib/parts/load.ts` (FNV-1a 32-bit of `JSON.stringify(polygon) + "|" + mask + "|" + (shading ?? "")`)
+- [x] 9b.2 In `loadPartsForScene`, attach `_rev` to every returned part
+- [x] 9b.3 In `components/parts/PartFinishLayer.tsx`, append `?v=<_rev>` to mask + shading URLs via a small `bust(url, rev)` helper
+- [x] 9b.4 Smoke: load `/`, verify network requests are `mask_07.png?v=<rev>`; edit polygon ⑦; reload; verify the `?v=` query string changed and the visual finish updates
+
+## 9c. Click pass-through on editing-part polygon Line (D14)
+
+- [x] 9c.1 Add `listening={false}` to the editing-part `<Line>` in `TraceTool.client.tsx`
+- [x] 9c.2 Smoke: with ⑦ selected, click an empty area inside the polygon → new vertex appended; click within 12 px of an edge → midpoint inserted; right-click a vertex Circle → vertex deleted
+
+## 9d. Header layout stable through status transitions (D15)
+
+- [x] 9d.1 Wrap SaveBadge + RegenBadge in a fixed-width (200 px) column with `whitespace-nowrap`
+- [x] 9d.2 Shorten regen done text to "マスク更新 <N>件 HH:MM:SS"; move "メイン画面はリロードで反映" reminder to `title` attribute
+- [x] 9d.3 Smoke: trigger an edit and verify header bounding-rect height stays constant through `idle → saving → saved → scheduled → running → done` (verified: header 52 px before and after; canvas Y position unchanged)
+
+## 9e. Per-part hash sidecar + force-regen safety valve (D11, D12)
+
+- [x] 9e.1 Replace the `.bak`-based diff in `app/api/dev/parts/regen/route.ts` with a per-part hash sidecar at `public/assets/base/main/parts.json.regen.json`
+- [x] 9e.2 Compute current per-part hash with the same FNV-1a function shared with the runtime `_rev` (D13) — ensures sidecar and cache-bust hashes stay in lock-step
+- [x] 9e.3 Atomic sidecar write (`.tmp` + `rename`); preserve hash entries for unchanged parts on partial regen
+- [x] 9e.4 Add `?force=true` query param that skips the sidecar diff and regenerates every part; update the sidecar to record every part's current hash on completion
+- [x] 9e.5 Add a "全マスク再生成" button to the `/dev/trace` header that POSTs `?force=true`
+- [x] 9e.6 Add `parts.json.regen.json` and `parts.json.regen.json.tmp` to `.gitignore`
+- [x] 9e.7 One-shot reconciliation: run `npm run seed:masks` to fully regen all 17 masks against the current `parts.json`; verify with bbox comparison that all parts now match (verified: 14/17 perfectly aligned; 3/17 within Gaussian-blur feather tolerance ≤ 15 px)
+- [x] 9e.8 Smoke: click "全マスク再生成" → badge shows "マスク更新 17件 HH:MM:SS"; subsequent diff POST returns `{ regenerated: [], mode: "diff", durationMs: 0 }` (sidecar is in sync)
 
 ## 9. Acknowledge D10 carve-out in design
 

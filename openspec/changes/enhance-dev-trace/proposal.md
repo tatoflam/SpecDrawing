@@ -11,6 +11,10 @@
 - **Import from extractor**: a button reads `/tmp/parts-extracted.json` (via the same dev API) and lets the designer merge polygons / markers per-part with a confirm-each-overwrite UX, so the PDF-extractor's hints can be used as a starting point per part instead of an all-or-nothing replacement.
 - **Other-part visibility toggle**: a 3-state switch (all dashed / current part only / hidden) replaces the current always-on faint-dashed rendering, so designers can isolate the part they're working on without canvas noise.
 - **Acknowledge the no-backend deviation**: design.md adds a D-entry that scopes the new API route as a dev-only designer aid, consistent with the spirit of the redesign change's D10 ("no production backend") rather than a true production API.
+- **Auto-regenerate mask + shading after save** so the runtime at `/` actually reflects polygon edits without a manual `npm run seed:masks`. A POST to `/api/dev/parts/regen` runs ~1.5 s after the autosave PUT settles, regenerating only the parts whose polygon (or asset filenames) drifted from a per-part hash sidecar (`parts.json.regen.json`). A `?force=true` variant skips the sidecar diff and rebuilds every mask, exposed in the header as a "全マスク再生成" button — the safety valve when sidecar state itself drifts (manual `parts.json` edit, file restored from `git`, etc.). The sidecar is local state only; gitignored.
+- **Cache-bust mask/shading URLs by per-part `_rev`** so the runtime image cache (and the browser image cache) cannot serve a stale `mask_<id>.png` after a /dev/trace edit. `loadPartsForScene` attaches a per-part FNV-1a hash of `polygon + mask + shading` to each part as `_rev`; `PartFinishLayer` appends `?v=<_rev>` to the asset URLs it hands to `useImage`. Same hash scheme as the regen sidecar so the two stay in lock-step.
+- **Click pass-through fix**: the editing-part polygon `<Line>` ships with `listening={false}` so its semi-transparent fill no longer captures clicks inside the polygon. Click-to-add-vertex, edge-midpoint insertion, and right-click-vertex-delete all reach the Stage handler / vertex Circle reliably.
+- **Stable header layout**: save badge and regen badge live in a fixed-width column with `whitespace-nowrap` so the header height never shifts as status transitions through saving / saved / regen states; long reminders move to `title` tooltips.
 
 Explicit non-goals:
 
@@ -30,9 +34,18 @@ Explicit non-goals:
 
 ## Impact
 
-- **New code**: `app/api/dev/parts/route.ts` (GET + PUT, dev-gated), `lib/dev/draftStore.ts` (localStorage wrapper), `lib/dev/history.ts` (undo/redo stack), `components/dev/RestoreDraftPrompt.tsx`. Substantial rewrite of `app/dev/trace/TraceTool.client.tsx` to thread through autosave + history + new editing affordances.
-- **No new runtime deps**. The API route uses Node's `fs/promises`. Zod is already a dep.
+- **New code**:
+  - `app/api/dev/parts/route.ts` (GET + PUT, dev-gated)
+  - `app/api/dev/parts/regen/route.ts` (POST, dev-gated, with `?force=true`; reads/writes `parts.json.regen.json` sidecar)
+  - `lib/dev/draftStore.ts` (localStorage wrapper)
+  - `lib/dev/history.ts` (undo/redo stack)
+  - `lib/dev/geometry.ts` (`nearestEdge` for edge-midpoint vertex insertion)
+  - `lib/dev/regenAssets.ts` (server-only mask + shading rasterization shared with the seed:masks script)
+  - `components/dev/RestoreDraftPrompt.tsx`, `components/dev/ExtractorImportPanel.tsx`
+  - Substantial rewrite of `app/dev/trace/TraceTool.client.tsx` to thread through autosave + history + edge insertion + visibility toggle + extractor import + auto-regen + force-regen
+  - Targeted edits to `lib/parts/load.ts` (attach `_rev`) and `components/parts/PartFinishLayer.tsx` (cache-bust URLs)
+- **No new runtime deps**. The API route uses Node's `fs/promises` and `sharp` (already a devDep). Zod is already a dep.
 - **No production impact**: the API route returns 404 outside development, so production bundles / deploys are unchanged. The `/dev/trace` page itself was already not part of the production demo flow.
 - **Spec relationship**: this change introduces the first formal spec for `/dev/trace`. The previous (archived) change `redesign-numbered-part-finish-picker` left it as a deferred designer-tool task (3.6) with no requirements; this change closes that gap.
 - **Touches `parts.json`** at runtime only when the designer is actively editing in development. Production fetches the committed file as before.
-- **`.gitignore`**: `public/assets/base/main/parts.json.bak` is added to `.gitignore` so the rolling backup never enters git.
+- **`.gitignore`**: `public/assets/base/main/parts.json.bak` (rolling backup), `parts.json.tmp` (atomic-write scratch), `parts.json.regen.json` (per-part regen hash sidecar), and `parts.json.regen.json.tmp` are all added to `.gitignore` so local state never enters git.
