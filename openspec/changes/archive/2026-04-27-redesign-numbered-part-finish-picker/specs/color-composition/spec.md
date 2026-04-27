@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Per-part finish application
+### Requirement: Per-part color override
 The system SHALL apply a chosen finish option to any part declared by the active scene's parts manifest. Each part declares a `renderMode` of either `"color"` or `"texture"`. Applying a finish MUST composite the chosen option onto the base image so the result visibly lands only on the part's masked region while preserving the base image's geometry; for `"color"` parts, the original lighting/shading MUST also be preserved.
 
 For `renderMode: "color"`, applying an option MUST composite the option's `colorHex` onto the base image, masked by the part's `mask_<part>.png` alpha and modulated by the part's `shading_<part>.png` luminance — i.e. the same `mask × shading × color` pipeline introduced in the MVP.
@@ -30,7 +30,7 @@ The color composition pipeline MUST NOT use CSS `filter: hue-rotate` or any filt
 - **WHEN** any finish is applied
 - **THEN** the rendered output is produced by Konva composite operations on the part's mask plus (for color mode) shading plus (for color mode) a color rect or (for texture mode) a texture image, and not by a CSS hue-rotate filter
 
-### Requirement: Scene-declared parts and render modes
+### Requirement: Scene-declared parts
 The set of parts that can carry a finish, and each part's `renderMode`, are defined by the active scene's `parts.json` (per the `numbered-part-overlay` capability). The finish-options panel MUST only offer options whose `partId` matches a part declared by the active scene. Attempting to set a finish on a part not declared by the active scene MUST be rejected. Attempting to set a finish whose `colorHex`/`textureUrl` shape does not match its part's `renderMode` MUST also be rejected.
 
 #### Scenario: UI lists only options for declared parts
@@ -75,7 +75,7 @@ The mask MUST be applied **last** in this mode as well, for the same reason. Num
 - **WHEN** a texture-mode finish is applied
 - **THEN** the layer's children are ordered texture image → mask (destination-in) and no texture pixels appear outside the mask
 
-### Requirement: Multiple simultaneous part finishes
+### Requirement: Multiple simultaneous part overrides
 The system MUST support independent finish selections on multiple parts at once. Selections on different parts MUST NOT interfere with one another, regardless of render mode. Selections on overlapping masks MUST composite in the parts manifest's declaration order (later-declared part wins in overlapping pixels).
 
 #### Scenario: Two non-overlapping parts both have finishes

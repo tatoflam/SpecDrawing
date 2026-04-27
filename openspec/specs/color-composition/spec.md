@@ -4,61 +4,88 @@
 TBD - created by archiving change add-material-presenter-mvp. Update Purpose after archive.
 ## Requirements
 ### Requirement: Per-part color override
-The system SHALL allow the user to assign an arbitrary HEX color to any part declared by the active scene. Assigning a color to a part MUST composite that color onto the base image, masked by the part's `mask_<part>.png` alpha and modulated by the part's `shading_<part>.png` luminance, so the chosen color visibly lands only on the intended region while preserving the base image's lighting and shading.
+The system SHALL apply a chosen finish option to any part declared by the active scene's parts manifest. Each part declares a `renderMode` of either `"color"` or `"texture"`. Applying a finish MUST composite the chosen option onto the base image so the result visibly lands only on the part's masked region while preserving the base image's geometry; for `"color"` parts, the original lighting/shading MUST also be preserved.
 
-#### Scenario: Assigning a color recolors only the masked region
-- **WHEN** a scene declares a `wall` part and the user picks `#3B82F6` for it
-- **THEN** pixels within the `mask_wall.png` alpha region appear tinted toward the chosen color and pixels outside it are unchanged from `base.jpg`
+For `renderMode: "color"`, applying an option MUST composite the option's `colorHex` onto the base image, masked by the part's `mask_<part>.png` alpha and modulated by the part's `shading_<part>.png` luminance — i.e. the same `mask × shading × color` pipeline introduced in the MVP.
 
-#### Scenario: Shading is preserved under the chosen color
-- **WHEN** a part's `shading_<part>.png` has darker regions representing shadow
+For `renderMode: "texture"`, applying an option MUST composite the option's `textureUrl` image (a pre-rendered finish at scene resolution) onto the base image, clipped by the part's `mask_<part>.png` alpha. The texture image is assumed to already include lighting consistent with the base perspective; no shading multiply is applied in this mode.
+
+#### Scenario: Color-mode option recolors only the masked region
+- **WHEN** part `07` (renderMode `"color"`) has option `"サンドベージュ"` selected
+- **THEN** pixels within `mask_07.png` alpha appear tinted toward the option's `colorHex` and pixels outside it are unchanged from `base.jpg`
+
+#### Scenario: Color-mode shading is preserved
+- **WHEN** a color-mode part's `shading_<part>.png` has darker regions representing shadow
 - **THEN** the recolored output shows those regions darker than the base recolor, preserving the original lighting cues
 
-#### Scenario: Clearing a part's color restores the base
-- **WHEN** the user clears the color override for a part
+#### Scenario: Texture-mode option swaps the masked region
+- **WHEN** part `10` (renderMode `"texture"`) has option `"ｺｺﾅｯﾂﾁｪﾘｰ"` selected
+- **THEN** pixels within `mask_10.png` alpha display the option's texture image and pixels outside it are unchanged from `base.jpg`
+
+#### Scenario: Clearing a part's selection restores the base
+- **WHEN** the user clears the finish selection for a part (or selects an explicit "no change" option backed by a transparent texture)
 - **THEN** the canvas reverts that region to the unmodified `base.jpg` pixels
 
 ### Requirement: No hue-rotate fallback
-The color composition pipeline MUST NOT use CSS `filter: hue-rotate` or any filter that changes hue without preserving luminance and saturation fidelity. Color application MUST go through the mask + shading compositing path.
+The color composition pipeline MUST NOT use CSS `filter: hue-rotate` or any filter that changes hue without preserving luminance and saturation fidelity. Color application for `renderMode: "color"` MUST go through the mask + shading compositing path; texture application for `renderMode: "texture"` MUST go through the mask-clip compositing path.
 
 #### Scenario: Implementation uses composite operations, not hue-rotate
-- **WHEN** a part color is applied
-- **THEN** the rendered output is produced by Konva composite operations on mask and shading layers, and not by a CSS hue-rotate filter
+- **WHEN** any finish is applied
+- **THEN** the rendered output is produced by Konva composite operations on the part's mask plus (for color mode) shading plus (for color mode) a color rect or (for texture mode) a texture image, and not by a CSS hue-rotate filter
 
 ### Requirement: Scene-declared parts
-The set of color-mutable parts is defined by each scene's `scene.json`. The color picker UI MUST only offer parts declared by the currently active scene. Attempting to set a color on a part not declared by the active scene MUST be rejected.
+The set of parts that can carry a finish, and each part's `renderMode`, are defined by the active scene's `parts.json` (per the `numbered-part-overlay` capability). The finish-options panel MUST only offer options whose `partId` matches a part declared by the active scene. Attempting to set a finish on a part not declared by the active scene MUST be rejected. Attempting to set a finish whose `colorHex`/`textureUrl` shape does not match its part's `renderMode` MUST also be rejected.
 
-#### Scenario: UI lists only declared parts
-- **WHEN** the active scene's `scene.json` declares parts `["wall", "floor"]`
-- **THEN** the color picker lists `wall` and `floor` as the only targetable parts
+#### Scenario: UI lists only options for declared parts
+- **WHEN** the active scene declares parts `["01", … "17"]` and the user selects part `07`
+- **THEN** the panel only lists options whose `partId === "07"`
 
 #### Scenario: Part-not-declared rejection
-- **WHEN** a caller attempts to set a color for a part id not present in the active scene's declaration
+- **WHEN** a caller attempts to set a finish for a `partId` not present in the active scene's manifest
+- **THEN** the store rejects the update and the canvas is unchanged
+
+#### Scenario: Render-mode mismatch rejection
+- **WHEN** a caller attempts to apply an option with `colorHex` set to a part whose `renderMode` is `"texture"` (or vice-versa)
 - **THEN** the store rejects the update and the canvas is unchanged
 
 ### Requirement: Composite layer ordering
-The bottom of the canvas MUST be the base scene image. Above it, each color-overridden part MUST render onto its **own dedicated canvas layer**, isolated from other parts. Within a single part's layer the children draw in this order:
+The bottom of the canvas MUST be the base scene image. Above it, each part with an active finish selection MUST render onto its **own dedicated canvas layer**, isolated from other parts.
+
+For `renderMode: "color"` parts, within the part's layer the children draw in this order:
 
 1. **Shading image** at full scene size (no compositing operator — it becomes the destination).
-2. **Color fill rect** at full scene size with `globalCompositeOperation="multiply"`. After this step the layer holds (shading × color) RGB everywhere on the scene, including outside the target part.
-3. **Mask image** at full scene size with `globalCompositeOperation="destination-in"`. This clips the (shading × color) result to the mask's alpha and clears everything else to transparent.
+2. **Color fill rect** at full scene size with `globalCompositeOperation="multiply"`.
+3. **Mask image** at full scene size with `globalCompositeOperation="destination-in"`.
 
-The per-part layer is then composited onto the stage with normal `source-over` blending; this is what guarantees one part's intermediate composite operations cannot leak into another part's region. Placed material instances from the `presentation-canvas` capability MUST render above all color-composition layers.
+The mask MUST be applied **last** within a color-mode part's layer. Performing the multiply after the mask leaks the shading image's RGB onto the alpha-0 regions outside the mask (Canvas2D `multiply` against a transparent destination yields opaque source pixels), producing gray smears. The "one part = one layer" isolation invariant from the MVP is preserved.
 
-The mask MUST be applied **last** within a part's layer. Performing the multiply after the mask leaks the shading image's RGB onto the alpha-0 regions outside the mask (Canvas2D `multiply` against a transparent destination yields opaque source pixels), producing gray smears. Conversely, putting multiple parts onto a single shared layer also breaks isolation, because each part's first draw step (full-scene shading) overwrites the previous part's already-masked content. Earlier drafts of this spec described "groups on a single layer" and the operator `source-in`; both were incorrect and are superseded by this requirement.
+For `renderMode: "texture"` parts, within the part's layer the children draw in this order:
 
-#### Scenario: Materials render above recolored parts
-- **WHEN** a part has an active color override and a material instance overlaps that region
-- **THEN** the material instance is drawn fully above the recolored region
+1. **Texture image** at full scene size (the option's `textureUrl`, no compositing operator).
+2. **Mask image** at full scene size with `globalCompositeOperation="destination-in"`.
+
+The mask MUST be applied **last** in this mode as well, for the same reason. Numbered markers and polygon outlines from `numbered-part-overlay` MUST render above all finish layers.
+
+#### Scenario: Markers render above recolored or retextured parts
+- **WHEN** a part has an active finish selection (color or texture mode) and a numbered marker overlaps that region
+- **THEN** the marker is drawn fully above the finish layer
+
+#### Scenario: Color-mode mask is applied last
+- **WHEN** a color-mode finish is applied
+- **THEN** the layer's children are ordered shading → color rect (multiply) → mask (destination-in) and no gray smears appear outside the mask
+
+#### Scenario: Texture-mode mask is applied last
+- **WHEN** a texture-mode finish is applied
+- **THEN** the layer's children are ordered texture image → mask (destination-in) and no texture pixels appear outside the mask
 
 ### Requirement: Multiple simultaneous part overrides
-The system MUST support independent color overrides on multiple parts at once. Overrides on different parts MUST NOT interfere with one another; overrides on overlapping masks MUST composite in scene-declaration order.
+The system MUST support independent finish selections on multiple parts at once. Selections on different parts MUST NOT interfere with one another, regardless of render mode. Selections on overlapping masks MUST composite in the parts manifest's declaration order (later-declared part wins in overlapping pixels).
 
-#### Scenario: Two non-overlapping parts both recolored
-- **WHEN** the user sets colors for `wall` and `floor` simultaneously
-- **THEN** both regions render with their respective color overrides and both preserve their own shading
+#### Scenario: Two non-overlapping parts both have finishes
+- **WHEN** the user selects a color-mode finish for part `07` and a texture-mode finish for part `10`
+- **THEN** both regions render with their respective finishes and neither interferes with the other
 
 #### Scenario: Overlapping masks composite in declaration order
 - **WHEN** two part masks have overlapping alpha regions
-- **THEN** the part declared later in `scene.json` wins in the overlap region
+- **THEN** the part declared later in `parts.json` wins in the overlap region
 

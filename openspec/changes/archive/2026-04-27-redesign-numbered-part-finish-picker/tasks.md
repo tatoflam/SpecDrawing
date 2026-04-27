@@ -1,7 +1,7 @@
 ## 1. Stage source assets and pipeline scaffolding
 
 - [x] 1.1 Create `resources/{base,reference,catalog}/` and copy `ベースパース.jpg`, `部材対応番号-{1,2,3}.pdf`, `部材リスト.xlsx` from the supplied download into them
-- [ ] 1.2 Configure Git LFS for the workbook: ensure `git lfs install` is run, add `.gitattributes` line `resources/catalog/*.xlsx filter=lfs diff=lfs merge=lfs -text`, then `git add .gitattributes resources/catalog/部材リスト.xlsx`; confirm `git lfs ls-files` shows it tracked — **PENDING USER**: `git-lfs` not installed on the host (`brew install git-lfs` required); see top-of-PR notes
+- [x] 1.2 Configure Git LFS for the workbook and other large binaries — done in commit `bab22c8`: `.gitattributes` tracks `*.xlsx`, `resources/base/*.jpg`, `resources/reference/*.pdf`, `public/assets/base/main/base.jpg`, `public/assets/finishes/**/*.png`. 193 LFS-tracked files at archive time.
 - [x] 1.2.1 In `scripts/extract-finish-options.mjs`, fail fast with a clear error if the xlsx is detected as an unresolved LFS pointer file (e.g. starts with `version https://git-lfs.github.com/spec/v1`)
 - [x] 1.3 Add `xlsx` as a devDependency for the seed script (also `adm-zip` for media extraction)
 - [x] 1.4 Write `resources/reference/AUTHORING.md` documenting source perspective dimensions, camera, and authoring guidance for texture-mode finishes

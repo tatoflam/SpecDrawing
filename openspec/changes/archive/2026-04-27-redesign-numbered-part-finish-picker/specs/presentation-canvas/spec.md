@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Base scene loading from the registry
+### Requirement: Base scene selection and loading
 The canvas MUST load the active perspective from the `base-perspective-registry` capability. On app start, the registry's default scene MUST be loaded with no further user action; the loaded scene's `base.jpg` MUST become the bottom layer of the canvas, and the scene's parts MUST be exposed to the `numbered-part-overlay` and `color-composition` capabilities. The MVP's user-facing scene-picker UI is removed; the registry still supports multiple scenes for future expansion, but exactly one scene loads by default in this change.
 
 #### Scenario: Default scene auto-loads
