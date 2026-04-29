@@ -298,3 +298,52 @@ as before. Use it if the dev API is unavailable for any reason.
 The dev API runs the request body through the same Zod schema the runtime
 uses. A malformed manifest returns 422 with the failing field path; the
 on-disk file is left untouched and the localStorage draft is preserved.
+
+## Multi-ring polygons (`polygons` schema)
+
+Each part's geometry is now a `polygons: Array<{ outer, holes? }>` field
+instead of the single `polygon` field. Each entry is one disjoint region of
+the part; `outer` is the region's outer ring and `holes` (optional) are
+rings cut out of that outer.
+
+Two authoring patterns this enables:
+
+- **Multi-region parts** — e.g. ⑬ closet doors as two outer rings, one per
+  door slab. The hit-test treats either region as a click on ⑬.
+- **Holed parts** — e.g. ⑰ サッシ枠 as one outer rectangle (the frame's
+  outer edge) with one hole rectangle (the glass). Clicks inside the hole
+  fall through; clicks on the frame ring select ⑰.
+
+### Migrating an existing `parts.json`
+
+The repository keeps existing single-polygon parts working for one release
+via a loader compatibility shim, but new authoring should use `polygons`.
+Migrate in one shot:
+
+```bash
+npm run migrate:multiring   # rewrites parts.json: polygon → polygons[0].outer
+npm run seed:masks          # regenerates every mask under the new sidecar hash
+```
+
+The migration is idempotent — re-running on an already-migrated file is a
+no-op.
+
+### Authoring sub-polygons and holes in `/dev/trace`
+
+(UI shipping in this change; documented here for reference.)
+
+- **`ポリゴンを追加`** appends a new `{ outer: [], holes: [] }` to the
+  active part. The next canvas clicks build that entry's outer ring.
+- **`穴を追加`** toggles hole-build mode under the active outer. The next
+  click sequence builds a new hole; toggle off (or right-click `穴を完了`)
+  to return to outer-edit.
+- The side panel groups vertices by `polygons[i] / outer` and
+  `polygons[i] / hole j`. Active sub-polygon and active hole are
+  highlighted.
+
+### Soft validation
+
+- A hole MUST have ≥ 3 vertices (Zod-enforced; an in-progress hole with
+  fewer triggers a 422 at autosave).
+- The dev API also warns (non-blocking) when a hole's first vertex is
+  geometrically outside its parent outer — likely an authoring mistake.

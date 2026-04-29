@@ -72,12 +72,24 @@ async function loadMaskAlpha(partMask, sceneW, sceneH) {
   return { data, channels: info.channels };
 }
 
-function polygonBbox(polygon, sceneW, sceneH) {
+// Accept legacy `polygon: Vertex[]` or new `polygons: [{outer, holes?}]`
+// and return the union of all outer rings as a flat vertex list. Holes do
+// not affect the bbox — the cropped texture covers the entire region the
+// mask might tint.
+function partOuterVertices(part) {
+  if (Array.isArray(part.polygons)) {
+    return part.polygons.flatMap((p) => p.outer);
+  }
+  if (Array.isArray(part.polygon)) return part.polygon;
+  throw new Error(`part ${part.id} has neither polygons nor polygon`);
+}
+
+function polygonBbox(vertices, sceneW, sceneH) {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const [x, y] of polygon) {
+  for (const [x, y] of vertices) {
     if (x < minX) minX = x;
     if (y < minY) minY = y;
     if (x > maxX) maxX = x;
@@ -154,7 +166,7 @@ async function main() {
       continue;
     }
     const maskInfo = await loadMaskAlpha(part.mask, scene.width, scene.height);
-    const box = polygonBbox(part.polygon, scene.width, scene.height);
+    const box = polygonBbox(partOuterVertices(part), scene.width, scene.height);
 
     for (const [optionLabel, variantKey] of Object.entries(ovByLabel)) {
       const variant = variantCache.get(variantKey);

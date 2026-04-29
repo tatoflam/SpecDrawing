@@ -9,7 +9,8 @@
 import { NextResponse } from "next/server";
 import { readFile, writeFile, rename, stat, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
-import { partsManifestSchema } from "@/lib/parts/types";
+import { partsManifestSchema, normalizePart } from "@/lib/parts/types";
+import { pointInRing } from "@/lib/parts/hitTest";
 
 const SCENE_DIR = resolve(process.cwd(), "public/assets/base/main");
 const LIVE = resolve(SCENE_DIR, "parts.json");
@@ -96,6 +97,24 @@ export async function PUT(request: Request) {
     );
   }
 
+  // Soft geometric-validity warning: a hole whose first vertex sits
+  // outside its parent's outer is almost always an authoring mistake.
+  // We do NOT reject — even-odd fill produces a defined output regardless,
+  // and rejecting would block the designer mid-edit. Just surface a note.
+  const warnings: Array<{ partId: string; polygonIndex: number; holeIndex: number }> = [];
+  for (const raw of parsed.data.parts) {
+    const part = normalizePart(raw);
+    part.polygons.forEach((poly, pi) => {
+      poly.holes?.forEach((hole, hi) => {
+        if (hole.length === 0) return;
+        const [hx, hy] = hole[0];
+        if (!pointInRing(hx, hy, poly.outer)) {
+          warnings.push({ partId: part.id, polygonIndex: pi, holeIndex: hi });
+        }
+      });
+    });
+  }
+
   const serialized = JSON.stringify(parsed.data, null, 2) + "\n";
 
   try {
@@ -114,6 +133,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({
       savedAt: new Date().toISOString(),
       mtime: st.mtime.toISOString(),
+      warnings: warnings.length ? warnings : undefined,
     });
   } catch (err) {
     // Best-effort cleanup of stray .tmp on failure.

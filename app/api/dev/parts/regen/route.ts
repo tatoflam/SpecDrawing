@@ -23,6 +23,7 @@ import { resolve } from "node:path";
 import sharp from "sharp";
 import {
   partsManifestSchema,
+  normalizePart,
   type Part,
   type PartsManifest,
 } from "@/lib/parts/types";
@@ -43,11 +44,13 @@ function devOnly(): NextResponse | null {
   return null;
 }
 
-// FNV-1a 32-bit on the polygon + asset filenames. Same shape as the
-// runtime `_rev` so a part's mask and runtime URL bust together.
+// FNV-1a 32-bit on the polygons + asset filenames. Same shape as the
+// runtime `_rev` so a part's mask and runtime URL bust together. Hashing
+// `polygons` (post-normalization) means any topology change — vertex move,
+// ring add/remove, polygon entry add/remove, hole add/remove — invalidates.
 function partRegenKey(part: Part): string {
   const payload =
-    JSON.stringify(part.polygon) + "|" + part.mask + "|" + (part.shading ?? "");
+    JSON.stringify(part.polygons) + "|" + part.mask + "|" + (part.shading ?? "");
   let h = 0x811c9dc5;
   for (let i = 0; i < payload.length; i++) {
     h ^= payload.charCodeAt(i);
@@ -83,7 +86,11 @@ async function writeRegenStateAtomic(state: RegenStateFile): Promise<void> {
 async function readManifest(path: string): Promise<PartsManifest | null> {
   try {
     const raw = await readFile(path, "utf-8");
-    return partsManifestSchema.parse(JSON.parse(raw));
+    const parsed = partsManifestSchema.parse(JSON.parse(raw));
+    return {
+      version: parsed.version,
+      parts: parsed.parts.map((p) => normalizePart(p)),
+    };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return null;

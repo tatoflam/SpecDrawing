@@ -25,7 +25,8 @@ import {
   pickDefaultScene,
 } from "@/lib/scenes/load";
 import type { Scene } from "@/lib/scenes/types";
-import type { Part, PartsManifest } from "@/lib/parts/types";
+import type { Part, PartsManifest, Vertex } from "@/lib/parts/types";
+import { firstOuter, withFirstOuter } from "@/lib/parts/polygonOps";
 import {
   loadDraft,
   saveDraft,
@@ -34,7 +35,10 @@ import {
 import { History, type HistoryEntry } from "@/lib/dev/history";
 import { nearestEdge, type Point } from "@/lib/dev/geometry";
 import { RestoreDraftPrompt } from "@/components/dev/RestoreDraftPrompt";
-import { ExtractorImportPanel } from "@/components/dev/ExtractorImportPanel";
+import {
+  ExtractorImportPanel,
+  type ExtractedManifest,
+} from "@/components/dev/ExtractorImportPanel";
 
 const MAX_DISPLAY_WIDTH = 1100;
 const AUTOSAVE_DEBOUNCE_MS = 600;
@@ -104,7 +108,7 @@ export default function TraceTool() {
   const regenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visibility, setVisibility] = useState<Visibility>("all");
   const [importPanel, setImportPanel] = useState<{
-    extracted: PartsManifest;
+    extracted: ExtractedManifest;
   } | null>(null);
   const [historyRev, setHistoryRev] = useState(0); // bump to re-render undo/redo buttons
 
@@ -218,7 +222,12 @@ export default function TraceTool() {
     if (!editingPart) return null;
     return {
       editingId: editingPart.id,
-      polygon: editingPart.polygon.map((v) => [v[0], v[1]] as [number, number]),
+      polygons: editingPart.polygons.map((poly) => ({
+        outer: poly.outer.map((v) => [v[0], v[1]] as Vertex),
+        holes: poly.holes?.map((h) =>
+          h.map((v) => [v[0], v[1]] as Vertex),
+        ),
+      })),
       marker: { ...editingPart.marker },
     };
   }, [editingPart]);
@@ -393,10 +402,11 @@ export default function TraceTool() {
       const before = snapshotCurrent();
       updatePart(
         editingPart.id,
-        (p) => ({
-          ...p,
-          polygon: [...p.polygon, [Math.round(x), Math.round(y)]],
-        }),
+        (p) =>
+          withFirstOuter(p, [
+            ...firstOuter(p),
+            [Math.round(x), Math.round(y)],
+          ]),
         before,
       );
     },
@@ -410,12 +420,12 @@ export default function TraceTool() {
       updatePart(
         editingPart.id,
         (p) => {
-          const next = p.polygon.slice() as Array<[number, number]>;
+          const next = firstOuter(p).slice();
           next.splice(edgeIndex + 1, 0, [
             Math.round(foot[0]),
             Math.round(foot[1]),
           ]);
-          return { ...p, polygon: next };
+          return withFirstOuter(p, next);
         },
         before,
       );
@@ -430,9 +440,9 @@ export default function TraceTool() {
       updatePart(
         editingPart.id,
         (p) => {
-          const next = p.polygon.slice() as Array<[number, number]>;
+          const next = firstOuter(p).slice();
           next[idx] = [Math.round(x), Math.round(y)];
-          return { ...p, polygon: next };
+          return withFirstOuter(p, next);
         },
         null,
       );
@@ -459,10 +469,7 @@ export default function TraceTool() {
       const before = snapshotCurrent();
       updatePart(
         editingPart.id,
-        (p) => ({
-          ...p,
-          polygon: p.polygon.filter((_, i) => i !== idx),
-        }),
+        (p) => withFirstOuter(p, firstOuter(p).filter((_, i) => i !== idx)),
         before,
       );
     },
@@ -487,7 +494,7 @@ export default function TraceTool() {
   const handleClearPolygon = useCallback(() => {
     if (!editingPart) return;
     const before = snapshotCurrent();
-    updatePart(editingPart.id, (p) => ({ ...p, polygon: [] }), before);
+    updatePart(editingPart.id, (p) => withFirstOuter(p, []), before);
   }, [editingPart, snapshotCurrent, updatePart]);
 
   const handleStageClick = useCallback(
@@ -499,7 +506,7 @@ export default function TraceTool() {
       const sx = pos.x / displayScale;
       const sy = pos.y / displayScale;
       const hit = nearestEdge(
-        editingPart.polygon as ReadonlyArray<Point>,
+        firstOuter(editingPart) as ReadonlyArray<Point>,
         [sx, sy],
         EDGE_INSERT_TOLERANCE_PX / displayScale,
       );
@@ -547,9 +554,12 @@ export default function TraceTool() {
           p.id === id
             ? {
                 ...p,
-                polygon: entry.polygon.map(
-                  (v) => [v[0], v[1]] as [number, number],
-                ),
+                polygons: entry.polygons.map((poly) => ({
+                  outer: poly.outer.map((v) => [v[0], v[1]] as Vertex),
+                  holes: poly.holes?.map((h) =>
+                    h.map((v) => [v[0], v[1]] as Vertex),
+                  ),
+                })),
                 marker: { ...entry.marker },
               }
             : p,
@@ -612,7 +622,7 @@ export default function TraceTool() {
       }
       if (!res.ok) throw new Error(`extractor fetch failed: ${res.status}`);
       const { manifest: extracted } = (await res.json()) as {
-        manifest: PartsManifest;
+        manifest: ExtractedManifest;
       };
       setImportPanel({ extracted });
     } catch (e: unknown) {
@@ -635,7 +645,12 @@ export default function TraceTool() {
         if (!ex) continue;
         const before: HistoryEntry = {
           editingId: part.id,
-          polygon: part.polygon.map((v) => [v[0], v[1]] as [number, number]),
+          polygons: part.polygons.map((poly) => ({
+            outer: poly.outer.map((v) => [v[0], v[1]] as Vertex),
+            holes: poly.holes?.map((h) =>
+              h.map((v) => [v[0], v[1]] as Vertex),
+            ),
+          })),
           marker: { ...part.marker },
         };
         historyRef.current.push(before);
@@ -645,7 +660,9 @@ export default function TraceTool() {
             p.id === part.id
               ? {
                   ...p,
-                  polygon: sel.polygon ? ex.polygon : p.polygon,
+                  polygons: sel.polygon
+                    ? [{ outer: ex.polygon as Vertex[] }]
+                    : p.polygons,
                   marker: sel.marker ? ex.marker : p.marker,
                 }
               : p,
@@ -847,10 +864,10 @@ export default function TraceTool() {
               <div>
                 <div className="font-semibold text-slate-700">頂点</div>
                 <div className="text-[10px] text-slate-500">
-                  {editingPart.polygon.length} 頂点
+                  {firstOuter(editingPart).length} 頂点
                 </div>
                 <ul className="mt-1 max-h-64 overflow-y-auto rounded border border-slate-200 bg-white">
-                  {editingPart.polygon.map((v, i) => (
+                  {firstOuter(editingPart).map((v, i) => (
                     <li
                       key={i}
                       className="flex items-center justify-between gap-2 border-b border-slate-100 px-2 py-1 last:border-b-0"
@@ -918,23 +935,25 @@ export default function TraceTool() {
               <Layer listening={false}>
                 {manifest.parts
                   .filter((p) => p.id !== editingId)
-                  .map((p) => (
-                    <Line
-                      key={p.id}
-                      points={p.polygon.flatMap(([x, y]) => [x, y])}
-                      closed
-                      stroke={CATEGORY_COLOR[p.category] ?? "#94A3B8"}
-                      strokeWidth={3}
-                      opacity={0.25}
-                      dash={[12, 8]}
-                    />
-                  ))}
+                  .flatMap((p) =>
+                    p.polygons.map((poly, pi) => (
+                      <Line
+                        key={`${p.id}-${pi}`}
+                        points={poly.outer.flatMap(([x, y]) => [x, y])}
+                        closed
+                        stroke={CATEGORY_COLOR[p.category] ?? "#94A3B8"}
+                        strokeWidth={3}
+                        opacity={0.25}
+                        dash={[12, 8]}
+                      />
+                    )),
+                  )}
               </Layer>
             )}
             {editingPart && (
               <Layer>
                 <Line
-                  points={editingPart.polygon.flatMap(([x, y]) => [x, y])}
+                  points={firstOuter(editingPart).flatMap(([x, y]) => [x, y])}
                   closed
                   stroke={CATEGORY_COLOR[editingPart.category] ?? "#0F172A"}
                   strokeWidth={6}
@@ -946,7 +965,7 @@ export default function TraceTool() {
                   // small relative to the polygon area).
                   listening={false}
                 />
-                {editingPart.polygon.map((v, i) => (
+                {firstOuter(editingPart).map((v, i) => (
                   <Circle
                     key={i}
                     x={v[0]}
