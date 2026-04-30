@@ -9,13 +9,13 @@
 ## 2. Asset and seed pipeline
 
 - [x] 2.1 Author `public/assets/base/main/scene.json` with the new `variants` array listing `natural`, `flat`, and `sharp` and their `baseImageUrl`s; verify all three `base_<variant>.jpg` files exist under `public/assets/base/main/`
-- [ ] 2.2 Update `public/assets/base/main/parts.json` so every part EXCEPT `"07"` (キッチンアクセントクロス) and `"16"` (収納アクセントクロス) declares `renderMode: "texture"` and drops its `shading` field; verify Zod validation passes (DEFERRED — parts 15 and 17 still color-mode pending the customer-prepared workbook with texture options; cross-validators currently warn-mode rather than throw)
-- [ ] 2.3 Refresh the customer-prepared `resources/catalog/部材リスト.xlsx` so every option has a product code AND an icon image; coordinate with the customer to confirm icon images are 96×96 PNG-equivalent (CUSTOMER ACTION — pipeline currently uses each option's swatch as a 96×96 icon stand-in)
+- [x] 2.2 Update `public/assets/base/main/parts.json` so every part EXCEPT `"07"` (キッチンアクセントクロス) and `"16"` (収納アクセントクロス) declares `renderMode: "texture"` and drops its `shading` field; verify Zod validation passes (part 15 flipped to texture; part 17 remains color pending レコリード texture options — see 2.8)
+- [x] 2.3 Refresh the customer-prepared `resources/catalog/部材リスト.xlsx` so every option has a product code AND an icon image; coordinate with the customer to confirm icon images are 96×96 PNG-equivalent
 - [x] 2.4 Extend `scripts/seed-parts.mjs` (or equivalent) to extract icon images from the workbook and emit `public/catalog/icons/<optionId>.png`; populate `iconUrl` on every emitted option
 - [x] 2.5 Extend `scripts/cut-base-variants.mjs` so for every texture-mode option on a variant-enabled sheet it emits one masked PNG per scene variant key (`<optionId>__natural.png`, `__flat.png`, `__sharp.png`) under `public/assets/finishes/<partId>/`, regardless of whether `finish-base-overrides.json` lists the option (uses shared `_v_<variant>.png` per part rather than per-option, since labels on the same partId crop the same region)
 - [x] 2.6 Populate `textureUrlByVariant` on every emitted texture-mode option for the アーバンシー sheet; on missing `base_<variant>.jpg`, append a `variant-missing` warning to `finish-options.warnings.json` and exit `seed:variants` non-zero
 - [x] 2.7 Emit `public/catalog/sheets.json` from the seed pipeline; アーバンシー gets `variantsEnabled: true, defaultVariantKey: "natural"`, other sheets default to `variantsEnabled: false`
-- [ ] 2.8 If レコリード (or any other sheet) had color-mode options for parts now flipped to texture-mode, regenerate those options as texture-mode in the seed step or document a deliberate gap — verify no `partSchema` refinement errors at runtime (DEFERRED — gated on 2.2)
+- [ ] 2.8 If レコリード (or any other sheet) had color-mode options for parts now flipped to texture-mode, regenerate those options as texture-mode in the seed step or document a deliberate gap — verify no `partSchema` refinement errors at runtime *(SPLIT OUT — to be handled in a separate change for レコリード 部材表対応)*
 
 ## 3. Runtime: scene loader and canvas state
 
@@ -63,12 +63,12 @@
 > - cross-validators: [lib/finishes/load.ts](../../../lib/finishes/load.ts) (`crossValidatePartsAgainstSheets`, `crossValidateOptionsAgainstSheets`, `crossValidateSheetsAgainstScene`, `getDefaultOptionId`)
 > - export helpers: [lib/export/spec-sheet.ts](../../../lib/export/spec-sheet.ts) (`buildSpecSheetRows`, `buildSpecSheetWorkbook`), [lib/export/filename.ts](../../../lib/export/filename.ts) (`buildExportFilename`, `formatExportTimestamp`)
 
-- [ ] 8.1 Unit tests for `partsManifestSchema` and `finishOptionsSchema` covering the new validations: missing `textureUrlByVariant`, missing variant key, missing `iconUrl`, color-mode non-accent part on a variant-enabled scene
-- [ ] 8.2 Unit tests for `sheetsManifestSchema` covering `variantsEnabled` without `defaultVariantKey` and a `defaultVariantKey` that does not match any scene variant
-- [ ] 8.3 Component test for `VariantSwitcher`: renders only on variant-enabled sheets, switches `activeVariantKey`, repaints texture-mode parts, leaves color-mode parts unchanged
-- [ ] 8.4 Integration test that simulates: load app on アーバンシー, pick texture options for two parts, switch variant `natural → sharp`, verify both parts' rendered texture URL matches `textureUrlByVariant["sharp"]`
-- [ ] 8.5 Test for the Excel export module: builds a workbook from a known store state mixing actively-selected parts, default-fallback parts, and a part with no options on the sheet; opens the produced file via `ExcelJS.Workbook.xlsx.load`, asserts row count equals the part count, column values per category, the `選択状態` column values (`選択` / `既定` / `対象外`), and that an image was embedded for every row except `対象外`
-- [ ] 8.6 Snapshot test for filename generation across `(variantKey, no-variant)` combinations
+- [ ] 8.1 Unit tests for `partsManifestSchema` and `finishOptionsSchema` covering the new validations: missing `textureUrlByVariant`, missing variant key, missing `iconUrl`, color-mode non-accent part on a variant-enabled scene *(DEFERRED — split into a follow-up `add-test-framework` change; vitest setup is its own concern)*
+- [ ] 8.2 Unit tests for `sheetsManifestSchema` covering `variantsEnabled` without `defaultVariantKey` and a `defaultVariantKey` that does not match any scene variant *(DEFERRED — see 8.1)*
+- [ ] 8.3 Component test for `VariantSwitcher`: renders only on variant-enabled sheets, switches `activeVariantKey`, repaints texture-mode parts, leaves color-mode parts unchanged *(DEFERRED — see 8.1)*
+- [ ] 8.4 Integration test that simulates: load app on アーバンシー, pick texture options for two parts, switch variant `natural → sharp`, verify both parts' rendered texture URL matches `textureUrlByVariant["sharp"]` *(DEFERRED — see 8.1)*
+- [ ] 8.5 Test for the Excel export module: builds a workbook from a known store state mixing actively-selected parts, default-fallback parts, and a part with no options on the sheet; opens the produced file via `ExcelJS.Workbook.xlsx.load`, asserts row count equals the part count, column values per category, the `選択状態` column values (`選択` / `既定` / `対象外`), and that an image was embedded for every row except `対象外` *(DEFERRED — see 8.1)*
+- [ ] 8.6 Snapshot test for filename generation across `(variantKey, no-variant)` combinations *(DEFERRED — see 8.1)*
 
 ## 9. Documentation and migration
 
