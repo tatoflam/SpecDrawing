@@ -229,6 +229,59 @@ parts that need variant cuts must be flipped to texture (and the
 `shading` field removed). Example: ⑫ 玄関床 was `color` in earlier
 versions and is `texture` now to support its 3 variant options.
 
+**Runtime variant switching (アーバンシー sheet)**
+
+When a sheet declares `variantsEnabled: true` in
+`public/catalog/sheets.json`, a runtime variant switcher (Natural / Flat /
+Sharp) is shown next to the sheet selector. Switching the variant:
+
+- swaps the canvas backdrop to the matching `base_<variant>.jpg`
+  (declared in `scene.json`'s `variants` array),
+- re-points every texture-mode part's `textureUrl` to
+  `option.textureUrlByVariant[activeVariantKey]`,
+- leaves color-mode parts unchanged (the customer's chosen color persists).
+
+`seed:variants` populates `textureUrlByVariant` for every texture-mode
+option on a variant-enabled sheet using one shared
+`/assets/finishes/<partId>/_v_<variant>.png` per `(partId, variant)` pair.
+A missing `base_<variant>.jpg` makes the seed step exit non-zero.
+
+The accent-cloth carve-out (parts `"07"` キッチンアクセントクロス and
+`"16"` 収納アクセントクロス) stays `renderMode: "color"` so the customer's
+hex color continues to drive their appearance regardless of the active
+variant.
+
+## 部材リスト.xlsx — column conventions
+
+The seed script `extract-finish-options.mjs` (`npm run seed:parts`) reads
+`resources/catalog/部材リスト.xlsx` and emits:
+
+- `public/catalog/finish-options.json` — every option keyed by
+  `(partId, sheet)` with `id`, `label`, `productCode?`, `thumbnailUrl`,
+  `iconUrl`, and either `colorHex` (color-mode) or `textureUrl`
+  (texture-mode).
+- `public/catalog/icons/<optionId>.png` — 96×96 icon embedded in the
+  Excel spec-sheet export. Currently the seed step copies each option's
+  swatch image into the icon path; once the customer-prepared workbook
+  ships dedicated icon images, those replace the swatch derivatives.
+- `public/catalog/sheets.json` — sheet manifest. アーバンシー is emitted
+  with `variantsEnabled: true, defaultVariantKey: "natural"`; every
+  other sheet defaults to `variantsEnabled: false`.
+
+Workbook columns the script reads:
+- Column B (per part header row): the circled number (① — ⑰).
+- Column C (per part header row): the part's Japanese label.
+- Columns D, E, F, … (header row): one option per column. The cell value
+  is the option label; its embedded swatch image (anchored via
+  `xl/drawings`) becomes the option's `thumbnailUrl` and `iconUrl`.
+- Trailing rows under a header: scanned up to 4 rows for product codes
+  in the same option columns. Code-shaped values (`/^[A-Za-z0-9][A-Za-z0-9\s\-./]*$/`)
+  populate `productCode`.
+
+When the customer adds dedicated icon images to the workbook, the seed
+script will need a small extension to read them from a separate column
+or sheet — leave a TODO until that arrives.
+
 ## /dev/trace workflow
 
 The designer tool at <http://localhost:3000/dev/trace> edits
