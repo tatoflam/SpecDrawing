@@ -29,9 +29,10 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Push the change to a feature branch; Vercel creates a preview deployment
-- [ ] 3.2 On the preview URL, verify `/` loads correctly (mask, shading, finishes all serve as binaries — not LFS pointers)
-- [ ] 3.3 On the preview URL, verify `/dev/trace` loads and the dev API responds 200
+- [x] 3.1 Push the change to a feature branch; Vercel creates a preview deployment
+- [x] 3.2 On the preview URL, verify `/` loads correctly (mask, shading, finishes all serve as binaries — not LFS pointers)
+- [x] 3.3 On the preview URL, verify `/dev/trace` loads and the dev API responds 200
+  - Refined during verification: GET responds 200 (read works); PUT and regen POST now return `503 preview-readonly` (Vercel FS read-only) and the client surfaces a terminal `プレビューは保存不可 — ダウンロードしてコミット` status. Designer load + edit + download flow confirmed working.
 - [ ] 3.4 Merge the PR to `main`; Vercel deploys to production
 - [ ] 3.5 On the production URL, verify `/` still loads correctly
 - [ ] 3.6 On the production URL, verify `/api/dev/parts` returns 404 and `/dev/trace` shows the placeholder
